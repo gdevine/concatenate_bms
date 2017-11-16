@@ -105,3 +105,9 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+
+# temporary data folders
+.data*/
+/output_data
+/raw_data
