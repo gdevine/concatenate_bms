@@ -117,9 +117,10 @@ request_data = json.dumps({'auth_token': api_token, 'upload_from_date': upload_f
                            'upload_to_date': upload_to_date, 'filename': filename})
 
 
-# Handle the returned response from the HIEv server
+# Send off the request to the HIEv server
 request = urllib2.Request(request_url, request_data, request_headers)
 
+# Handle the returned response from the HIEv server
 try:
     response = urllib2.urlopen(request)
 except urllib2.HTTPError, e:
@@ -193,23 +194,29 @@ for x in range(1, 9):
 
     for datafile in matches:
         if 'zone_temp' in datafile:
-            temp_data = pd.read_csv(os.path.join(raw_dir, datafile))['Value']
-            temp_data = temp_data.groupby(np.arange(len(temp_data)) // 5).mean()
+            temp_data = pd.read_csv(os.path.join(raw_dir, datafile), header=0, parse_dates=[0], index_col=0)
+            resampled_temp_data = temp_data.resample('5T', closed='right', label='right').mean()
         elif 'zone_humidity' in datafile:
-            date_times = pd.read_csv(os.path.join(raw_dir, datafile))['DateTime']
             humidity_data = pd.read_csv(os.path.join(raw_dir, datafile))['Value']
+            # Use this file for grabbing 5-minutely datetime series
+            date_times = pd.read_csv(os.path.join(raw_dir, datafile))['DateTime']
+            # convert the date time to a datetime format
+            date_converter = lambda y: datetime.datetime.strptime(y, '%m/%d/%Y %I:%M:%S %p').strftime('%Y-%m-%d %H:%M:%S')
+            date_times = date_times.apply(date_converter)
         elif 'co2_sensor' in datafile:
-            co2_data = pd.read_csv(os.path.join(raw_dir, datafile))['Value']
-            co2_data = co2_data.groupby(np.arange(len(co2_data)) // 5).mean()
+            co2_data = pd.read_csv(os.path.join(raw_dir, datafile), header=0, parse_dates=True, index_col=0)
+            resampled_co2_data = co2_data.resample('5T', closed='right', label='right').mean()
         else:
             logging.warning('New data file name found!')
 
-    # Bring together all data into one dataframe and write it to file
-    combined_data = pd.concat([date_times, temp_data, humidity_data, co2_data], axis=1)
+    # Bring together all variable series' into one dataframe
+    combined_data = pd.concat([date_times, resampled_temp_data.reset_index(drop=True), humidity_data, resampled_co2_data.reset_index(drop=True)], axis=1)
 
-    # Decide where to append to existing data (if not new month) or create new file
+
+    # Decide whether to append to existing data (if not new month) or create new file
     combined_data.to_csv(os.path.join(output_dir, 'S39_R%s_ENVVARS_%s.csv' % (str(x), data_date)), index=False)
     logging.info('CSV file created: %s' % 'S39_R%s_ENVVARS_%s.csv' % (str(x), data_date))
 
 
+# Run successful - send notification email
 send_mail('BMS files successfully reorganised and concatenated', 'Success')
